@@ -1,0 +1,162 @@
+function fftools --description "All-in-one wrapper for ffmpeg operations"
+    if test (count $argv) -eq 0
+        __fftools_help
+        return 0
+    end
+
+    set -l subcommand $argv[1]
+    set -e argv[1]
+
+    switch $subcommand
+        # ---------------------------------------------------------
+        # ROTATE
+        # ---------------------------------------------------------
+        case rotate
+            if test (count $argv) -lt 2
+                echo "Usage: fftools rotate [rotation] [input] [output(optional)]"
+                return 1
+            end
+            set -l rot $argv[1]
+            set -l input $argv[2]
+            set -l output
+
+            if test (count $argv) -ge 3
+                set output $argv[3]
+            else
+                set -l ext (path extension $input)
+                set -l base (path change-extension "" $input)
+                set output "$base-r$rot$ext"
+            end
+
+            echo "Rotating $input by $rot degrees -> $output"
+            ffmpeg -v warning -display_rotation:v:0 $rot -i "$input" -c copy "$output"
+
+        # ---------------------------------------------------------
+        # CHECK HEVC & AV1
+        # Moves files that are NOT hevc AND NOT av1 to ./enc
+        # ---------------------------------------------------------
+        case checkhevc
+            set -l target_dir "."
+            if test (count $argv) -ge 1
+                set target_dir $argv[1]
+            end
+
+            echo "Checking for non-HEVC/AV1 files in: $target_dir"
+
+            for f in $target_dir/*.{mp4,mkv,avi}
+                test -f "$f"; or continue
+
+                set -l codec (ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 "$f")
+
+                # If codec is NOT hevc AND NOT av1, move it
+                if not contains $codec hevc av1
+                    echo "Detected $codec (needs encode): $f"
+                    set -l enc_dir "$target_dir/enc"
+                    if not test -d "$enc_dir"
+                        mkdir -p "$enc_dir"
+                    end
+                    mv "$f" "$enc_dir/"
+                end
+            end
+            echo "Scan complete."
+
+        # ---------------------------------------------------------
+        # EXTRACT FRAMES
+        # Creates folder "video_name/" and puts "frame_00001.png" inside
+        # ---------------------------------------------------------
+        case extractframes
+            set -l input "."
+            if test (count $argv) -ge 1
+                set input $argv[1]
+            end
+
+            function __fftools_extract_one
+                set -l file $argv[1]
+                # "video.mp4" -> "video"
+                set -l base_name (path change-extension "" (path basename $file))
+
+                # Output directly to "video/frame_XXXXX.png"
+                set -l out_dir "$base_name"
+
+                echo "Extracting: $file -> $out_dir/"
+                mkdir -p "$out_dir"
+                ffmpeg -v error -i "$file" "$out_dir/frame_%05d.png"
+            end
+
+            if test -f "$input"
+                __fftools_extract_one "$input"
+            else if test -d "$input"
+                echo "Processing directory: $input"
+                for f in $input/*.{mp4,mkv,avi,gif,webm}
+                    test -f "$f"; or continue
+                    __fftools_extract_one "$f"
+                end
+            else
+                echo "Error: Input not found."
+                return 1
+            end
+
+        # ---------------------------------------------------------
+        # COMBINE FRAMES
+        # Supports gaps in frame numbers
+        # ---------------------------------------------------------
+        case combineframes
+            if test (count $argv) -lt 3
+                echo "Usage: fftools combineframes [fps] [folder_or_pattern] [output_file]"
+                return 1
+            end
+            set -l fps $argv[1]
+            set -l source $argv[2]
+            set -l out $argv[3]
+            set -l inputs_args
+
+            if test -d "$source"
+                echo "Detected folder. Combining all PNGs in: $source"
+                # Uses glob to match all pngs alphabetically, ignoring gaps
+                set inputs_args -pattern_type glob -i "$source/*.png"
+            else
+                set inputs_args -i "$source"
+            end
+
+            ffmpeg -framerate $fps $inputs_args -c:v libx264 -pix_fmt yuv420p "$out"
+
+        # ---------------------------------------------------------
+        # COMBINE VIDEOS (Concat)
+        # ---------------------------------------------------------
+        case combinevids
+            set -l output_name "combined_output.mp4"
+            if test (count $argv) -ge 1
+                set output_name $argv[1]
+            end
+
+            set -l listfile "concat_list.txt"
+            if test -f $listfile; rm $listfile; end
+
+            echo "Generating list..."
+            for f in *.mp4
+                echo "file '$f'" >> $listfile
+            end
+
+            if not test -f $listfile
+                echo "No .mp4 files found."
+                return 1
+            end
+
+            echo "Concatenating..."
+            ffmpeg -f concat -safe 0 -i $listfile -c copy "$output_name"
+            rm $listfile
+            echo "Done: $output_name"
+
+        case help
+            __fftools_help
+        case '*'
+            echo "Unknown command: $subcommand"
+            __fftools_help
+            return 1
+    end
+end
+
+function __fftools_help
+    echo "Usage: fftools [command] ..."
+    echo "  rotate, checkhevc, extractframes, combineframes, combinevids"
+end

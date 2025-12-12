@@ -1,0 +1,5 @@
+# Ignore the actual config with your IP
+yeecli/yeecli.cfg
+
+# Ignore system files
+.DS_Store
