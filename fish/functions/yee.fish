@@ -1,20 +1,33 @@
-# Disable file completion
-complete -c yee -f
+function yee --description "Wrapper for yeecli with color presets"
+    set -l final_args
 
-# 1. Main Subcommands
-set -l commands toggle on off rgb brightness temperature hue sat
+    # Default to toggle if no arguments
+    if test (count $argv) -eq 0
+        set final_args toggle
+    else
+        # Existing arg processing loop...
+        for arg in $argv
+            switch $arg
+                # --- Color Presets ---
+                case red;     set -a final_args "FF0000"
+                case green;   set -a final_args "00FF00"
+                case blue;    set -a final_args "0000FF"
+                case white;   set -a final_args "FFFFFF"
+                case warm;    set -a final_args "FFD1A4" # Nice warm white
+                case cool;    set -a final_args "F4FFFA" # Cool white
+                case purple;  set -a final_args "800080"
+                case orange;  set -a final_args "FFA500"
+                case cyan;    set -a final_args "00FFFF"
+                case magenta; set -a final_args "FF00FF"
 
-complete -c yee -n "not __fish_seen_subcommand_from $commands" -a "$commands"
+                # --- Pass everything else through ---
+                case '*'
+                    set -a final_args $arg
+            end
+        end
+    end
 
-# 2. Flag Completions
-complete -c yee -l ip -d "Target specific IP" -r # -r means it expects an argument (the IP)
+    yeecli $final_args
+end
 
-# 3. Argument Completions
-# RGB: Suggest our presets
-complete -c yee -n "__fish_seen_subcommand_from rgb" -a "red green blue white warm cool purple orange cyan magenta"
 
-# Brightness: Suggest steps of 10
-complete -c yee -n "__fish_seen_subcommand_from brightness" -a "10 25 50 75 100"
-
-# Temperature: Suggest common Kelvin values
-complete -c yee -n "__fish_seen_subcommand_from temperature" -a "1700 2700 4000 6500"
