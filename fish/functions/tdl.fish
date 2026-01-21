@@ -1,75 +1,70 @@
-function tdl --description "Smart OrpheusDL Wrapper"
-    set -l tdl_dir "$HOME/Music/OrpheusDL"
+function tdl --description "Tidal DL"
+    set -l tdl_base "$HOME/Music"
+    set -l tdl_dir "$tdl_base/OrpheusDL"
+    set -l venv_dir "$tdl_dir/.venv"
+    set -l tidal_mod_dir "$tdl_dir/modules/tidal"
+    set -l py "$venv_dir/bin/python"
 
-    # 1. Validation and Setup
+    # --- Phase 1: Main Repo Check ---
     if not test -d "$tdl_dir"
-        echo "Error: Directory $tdl_dir not found."
-        return 1
+        echo "OrpheusDL missing. Cloning..."
+        mkdir -p "$tdl_base"
+        git clone https://github.com/dragnu5/OrpheusDL.git "$tdl_dir"
     end
 
-    if not set -q VIRTUAL_ENV
-        if test -f "$tdl_dir/.venv/bin/activate.fish"
-            source "$tdl_dir/.venv/bin/activate.fish"
-        else
-            echo "Error: Virtual environment not found."
-            return 1
-        end
+    # --- Phase 2: Venv Check ---
+    if not test -f "$py"
+        echo "Venv broken or missing. Rebuilding..."
+        rm -rf "$venv_dir"
+        python -m venv "$venv_dir"
+        "$venv_dir/bin/pip" install -U pip
+        "$venv_dir/bin/pip" install -r "$tdl_dir/requirements.txt"
     end
 
-    set -l original_dir (pwd)
-    builtin cd "$tdl_dir"
+    # --- Phase 3: Tidal Module Check ---
+    if not test -d "$tidal_mod_dir"
+        echo "Tidal module missing. Installing..."
+        # We need to be in the dir to clone correctly into modules/tidal
+        builtin cd "$tdl_dir"
+        git clone --recurse-submodules https://github.com/Dniel97/orpheusdl-tidal.git "modules/tidal"
 
-    # 2. Smart Argument Handling
+        # Initialize settings.json so Orpheus knows the module exists
+        "$py" orpheus.py --help > /dev/null 2>&1
+    end
+
+    # --- Phase 4: Execution Logic ---
     if test (count $argv) -eq 0
-        echo "Usage: tdl [url | track/album/artist search_term | search_term]"
-        builtin cd "$original_dir"
+        echo "Usage: tdl [url | update | (album/artist/track) search_term]"
         return 1
     end
 
-    set -l first_arg $argv[1]
+    builtin cd "$tdl_dir"
+    set -l first "$argv[1]"
 
-    if string match -q "http*" "$first_arg"
-        # CASE A: Input is a URL -> Parse and Download
-        echo "Detected URL..."
-
-        # 1. Clean the URL (remove query parameters like ?si=...)
-        set -l clean_url (string split '?' "$first_arg")[1]
-
-        # 2. Regex to extract Service, Type, and ID
-        # Matches pattern: https://[service].com/.../[type]/[id]
-        set -l matches (string match -r 'https://(?:www\.)?([a-z]+)\.com.*/(track|album|artist|playlist)/([0-9a-zA-Z]+)' "$clean_url")
-
-        if test (count $matches) -ge 4
-            set -l service $matches[2]
-            set -l type $matches[3]
-            set -l id $matches[4]
-
-            echo "Parsing successful: $service $type $id"
-            echo "Downloading..."
-
-            # Pass the extracted arguments to orpheus
-            python orpheus.py download "$service" "$type" "$id"
-        else
-            echo "Error: Could not parse URL format."
-            echo "Ensure URL is in format: https://[service].com/[type]/[id]"
-            builtin cd "$original_dir"
-            return 1
-        end
-
-    else if contains "$first_arg" track album artist playlist
-        # CASE B: Input starts with explicit type -> Search specific type
-        # usage: tdl album "Pink Floyd"
-        set -l query $argv[2..-1]
-        echo "Searching Tidal for $first_arg: $query"
-        python orpheus.py search tidal "$first_arg" "$query"
-
-    else
-        # CASE C: General Input -> Assume it's a Track Search
-        # usage: tdl "something to hide"
-        echo "Searching Tidal tracks for: $argv"
-        python orpheus.py search tidal track "$argv"
+    # UPDATE Command
+    if test "$first" = "update"
+        echo "Updating OrpheusDL and Tidal..."
+        git pull
+        git -C "modules/tidal" pull
+        "$venv_dir/bin/pip" install -r requirements.txt
+        echo "Done."
+        return 0
     end
 
-    # 3. Cleanup
-    builtin cd "$original_dir"
+    # URL Handling
+    if string match -q "http*" "$first"
+        "$py" orpheus.py "$argv"
+        return 0
+    end
+
+    # SEARCH Handling
+    if contains "$first" album artist playlist track
+        set -l mode $argv[1]
+        set -l query $argv[2..-1]
+        "$py" orpheus.py search tidal "$mode" "$query"
+    else
+        # Default to track search
+        set -l query $argv
+        "$py" orpheus.py search tidal track "$query"
+    end
 end

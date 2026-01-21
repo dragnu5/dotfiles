@@ -104,3 +104,25 @@ curl -L [https://raw.githubusercontent.com/YOUR_USER/dotfiles/main/fish/completi
 ```
 [default]
 ip = 192.168.1.1
+
+## Color Picker
+wl-colorpicker-plasma
+wl-clipboard
+
+```
+#!/bin/bash
+set -e
+color=$(wl-colorpicker-plasma | grep -oE '[a-fA-F0-9]{6}' | tr -d '\n')
+echo -n "$color" | wl-copy
+```
+"$HOME/.local/bin/colorpicker"
+```
+chmod +x ~/.local/bin/colorpicker
+```
+
+
+or...
+
+```
+mkdir -p ~/.local/bin && printf '#!/bin/bash\nset -e\ncolor=$(wl-colorpicker-plasma | grep -oE '\''[a-fA-F0-9]{6}'\'' | tr -d '\''\\n'\'')\necho -n "$color" | wl-copy\n' > ~/.local/bin/colorpicker && chmod +x ~/.local/bin/colorpicker
+```
